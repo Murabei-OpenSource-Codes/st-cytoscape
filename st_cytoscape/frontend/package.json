@@ -36,5 +36,8 @@
       "last 1 safari version"
     ]
   },
+  "scripts": {
+  "build": "NODE_OPTIONS=--openssl-legacy-provider react-scripts build"
+  },
   "homepage": "."
 }

@@ -25,6 +25,7 @@ def cytoscape(
     min_zoom=1e-50,
     max_zoom=1e50,
     key=None,
+    wheel_sensitivity=1
 ):
     """Creates a new instance of a Cytoscape.js graph.
 
@@ -55,6 +56,9 @@ def cytoscape(
         An optional key that uniquely identifies this component. If this is
         None, and the component's arguments are changed, the component will
         be re-mounted in the Streamlit frontend and lose its current state.
+    wheel_sensitivity: float
+        Cf. https://js.cytoscape.org/#core/initialisation
+
 
     Returns
     -------
@@ -85,6 +89,7 @@ def cytoscape(
         maxZoom=max_zoom,
         key=key,
         default=default,
+        wheelSensitivity=wheel_sensitivity
     )
     return component_value
 
