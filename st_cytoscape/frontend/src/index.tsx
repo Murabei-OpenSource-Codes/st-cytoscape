@@ -75,6 +75,7 @@ function onRender(event: Event): void {
       userPanningEnabled: data.args["userPanningEnabled"],
       minZoom: data.args["minZoom"],
       maxZoom: data.args["maxZoom"],
+      wheelSensitivity: data.args["wheelSensitivity"],
     }).on('select unselect', function () {
       updateComponent(cy);
     });
