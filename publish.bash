@@ -1,5 +1,7 @@
+source version
+
 rm -R build/
-python setup.py build sdist bdist_wheel
+python3 setup.py build sdist bdist_wheel
 
 git add --all
 git commit -m "Building a new version ${VERSION}"
