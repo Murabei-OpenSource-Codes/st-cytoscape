@@ -191,35 +191,36 @@ function onRender(event: Event): void {
     div.style.width = data.args["width"];
     div.style.height = data.args["height"];
 
-    // Theme-aware styling
-    let nodeColor: any[] = [];
-    if (data.theme) {
-      if (data.theme?.backgroundColor) {
-        div.style.background = data.theme.backgroundColor;
-      }
-      nodeColor = [{
-        selector: "node:selected",
-        style: { backgroundColor: data.theme?.primaryColor }
-      }, {
-        selector: "node",
-        style: {
-          color: data.theme?.textColor,
-          fontFamily: data.theme?.font
-        }
-      }, {
-        selector: "edge:selected",
-        style: {
-          targetArrowColor: data.theme?.primaryColor,
-          lineColor: data.theme?.primaryColor
-        }
-      }]
-    }
+    // Block comment to allow custom styling through Streamlit
+    // // Theme-aware styling
+    // let nodeColor: any[] = [];
+    // if (data.theme) {
+    //   if (data.theme?.backgroundColor) {
+    //     div.style.background = data.theme.backgroundColor;
+    //   }
+    //   nodeColor = [{
+    //     selector: "node:selected",
+    //     style: { backgroundColor: data.theme?.primaryColor }
+    //   }, {
+    //     selector: "node",
+    //     style: {
+    //       color: data.theme?.textColor,
+    //       fontFamily: data.theme?.font
+    //     }
+    //   }, {
+    //     selector: "edge:selected",
+    //     style: {
+    //       targetArrowColor: data.theme?.primaryColor,
+    //       lineColor: data.theme?.primaryColor
+    //     }
+    //   }]
+    // }
 
     // Create Cytoscape graph
     cy = cytoscape({
       container: div,
       elements: data.args["elements"],
-      style: data.args["stylesheet"].concat(nodeColor),
+      style: data.args["stylesheet"],
       layout: data.args["layout"],
       selectionType: data.args["selectionType"],
       userZoomingEnabled: data.args["userZoomingEnabled"],
