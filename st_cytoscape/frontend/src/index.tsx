@@ -59,11 +59,10 @@ function addDownloadButtons(cy: any) {
   // Style the button
   Object.assign(mainBtn.style, {
     backgroundColor: "#ffffff",
-    fontWeight: "bold",
     fontSize: "20px",
     minHeight: "0",
-    height: "36px",
-    width: "36px",
+    height: "40px",
+    width: "40px",
     border: "1px solid #ffffff",
     borderRadius: "0.5rem",
     padding: "0",
@@ -72,8 +71,8 @@ function addDownloadButtons(cy: any) {
     justifyContent: "center",
     transition: "background-color 0.3s ease",
     position: "absolute",
-    top: "0px",
-    right: "60px",
+    top: "-13px",
+    right: "80px",
     zIndex: "1000",
     outline: "none",
     boxShadow: "none",
@@ -89,9 +88,9 @@ function addDownloadButtons(cy: any) {
   // Popover
   const popover = document.createElement("div");
   Object.assign(popover.style, {
-    position: "relative",
-    top: "50%",
-    right: "50%",
+    position: "absolute",
+    top: "45px",
+    right: "0px",
     display: "none",
     flexDirection: "column",
     backgroundColor: "white",
@@ -99,10 +98,9 @@ function addDownloadButtons(cy: any) {
     borderRadius: "6px",
     boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
     whiteSpace: "nowrap",
-    transform: "translateY(100%)",
     zIndex: "2000",
   });
-  buttonContainer.appendChild(popover);
+  mainBtn.appendChild(popover);
 
   // Helper to create export options inside popover
   function createOption(label: string, onClick: () => void) {
