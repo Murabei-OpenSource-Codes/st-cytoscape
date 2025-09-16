@@ -99,7 +99,7 @@ function addDownloadButtons(cy: any) {
     borderRadius: "6px",
     boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
     whiteSpace: "nowrap",
-    transform: "translateY(50%)",
+    transform: "translateY(100%)",
     zIndex: "2000",
   });
   buttonContainer.appendChild(popover);
