@@ -140,23 +140,6 @@ function addDownloadButtons(cy: any) {
     a.click();
   });
 
-  createOption("🖊️ SVG", () => {
-    if (typeof cy.svg === "function") {
-      const svgData = cy.svg({
-        full: true,
-        scale: 1,
-        bg: "white"});
-      const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "graph.svg";
-      a.click();
-
-      URL.revokeObjectURL(url);
-    }
-  });
-
   // Toggle popover visibility
   mainBtn.addEventListener("click", (event) => {
     event.stopPropagation();
