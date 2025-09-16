@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="st-cytoscape",
-    version="0.0.5",
+    version="0.1.6",
     author="",
     author_email="",
     description="A Streamlit component to display a Cytoscape.js graph",
@@ -12,11 +12,8 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     include_package_data=True,
     classifiers=[],
-    python_requires=">=3.6",
+    python_requires=">=3.9",
     install_requires=[
-        # By definition, a Custom Component depends on Streamlit.
-        # If your component has other Python dependencies, list
-        # them here.
         "streamlit >= 0.63",
     ],
 )

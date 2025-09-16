@@ -1,3 +1,5 @@
+"""Cytoscape component for Streamlit."""
+
 import os
 import streamlit.components.v1 as components
 
@@ -10,7 +12,8 @@ if not _RELEASE:
 else:
     parent_dir = os.path.dirname(os.path.abspath(__file__))
     build_dir = os.path.join(parent_dir, "frontend/build")
-    _component_func = components.declare_component("st_cytoscape", path=build_dir)
+    _component_func = components.declare_component(
+        "st_cytoscape", path=build_dir)
 
 
 def cytoscape(
@@ -29,44 +32,43 @@ def cytoscape(
 ):
     """Creates a new instance of a Cytoscape.js graph.
 
-    Parameters
-    ----------
-    elements: list
-        The list of nodes and edges of the graph
-        (cf. https://js.cytoscape.org/#notation/elements-json)
-    stylesheet: list
-        The style used for the graph (cf. https://js.cytoscape.org/#style)
-    width: string
-        The CSS width attribute of the graph's container
-    height: string
-        The CSS height attribute of the graph's container
-    layout: dict
-        The layout options for the graph (cf. https://js.cytoscape.org/#layouts)
-    seletion_type: string ("single" or "additive")
-        Cf. https://js.cytoscape.org/#core/initialisation
-    user_zooming_enabled: boolean
-        Cf. https://js.cytoscape.org/#core/initialisation
-    user_panning_enabled: boolean
-        Cf. https://js.cytoscape.org/#core/initialisation
-    min_zoom: float
-        Cf. https://js.cytoscape.org/#core/initialisation
-    max_zoom: float
-        Cf. https://js.cytoscape.org/#core/initialisation
-    key: str or None
-        An optional key that uniquely identifies this component. If this is
-        None, and the component's arguments are changed, the component will
-        be re-mounted in the Streamlit frontend and lose its current state.
-    wheel_sensitivity: float
-        Cf. https://js.cytoscape.org/#core/initialisation
+    Parameters:
+        elements: list
+            The list of nodes and edges of the graph
+            (cf. https://js.cytoscape.org/#notation/elements-json)
+        stylesheet: list
+            The style used for the graph
+            (cf. https://js.cytoscape.org/#style)
+        width: string
+            The CSS width attribute of the graph's container
+        height: string
+            The CSS height attribute of the graph's container
+        layout: dict
+            The layout options for the graph
+            (cf. https://js.cytoscape.org/#layouts)
+        seletion_type: string ("single" or "additive")
+            Cf. https://js.cytoscape.org/#core/initialisation
+        user_zooming_enabled: boolean
+            Cf. https://js.cytoscape.org/#core/initialisation
+        user_panning_enabled: boolean
+            Cf. https://js.cytoscape.org/#core/initialisation
+        min_zoom: float
+            Cf. https://js.cytoscape.org/#core/initialisation
+        max_zoom: float
+            Cf. https://js.cytoscape.org/#core/initialisation
+        key: str or None
+            An optional key that uniquely identifies this component. If this is
+            None, and the component's arguments are changed, the component will
+            be re-mounted in the Streamlit frontend and lose its current state.
+        wheel_sensitivity: float
+            Cf. https://js.cytoscape.org/#core/initialisation
 
-
-    Returns
-    -------
-    dict
-        A dictionary containing the list of the ids of selected nodes ("nodes"
-        key) and the list of the ids of the selected edges ("edges" key)
+    Returns:
+        component_value
+            A dictionary containing the list of the ids of selected nodes
+            ("nodes" key) and the list of the ids of the selected edges
+            ("edges" key).
     """
-
     default = {"nodes": [], "edges": []}
     for e in elements:
         if "selected" in e:
@@ -107,15 +109,18 @@ if not _RELEASE:
     ]
 
     stylesheet = [
-        {"selector": "node", "style": {"label": "data(id)", "width": 20, "height": 20}},
+        {
+            "selector": "node",
+            "style": {
+                "label": "data(id)",
+                "width": 20,
+                "height": 20}},
         {
             "selector": "edge",
             "style": {
                 "width": 3,
                 "curve-style": "bezier",
-                "target-arrow-shape": "triangle",
-            },
-        },
+                "target-arrow-shape": "triangle"}},
     ]
 
     selected = cytoscape(elements, stylesheet, key="graph")

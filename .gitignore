@@ -1,6 +1,18 @@
-st_cytoscape/frontend/node_modules/
-dist/
 st_cytoscape.egg-info/
 .vscode/
 *.txt
 *.pyc
+
+# Node
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
