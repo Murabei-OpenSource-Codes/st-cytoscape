@@ -18,6 +18,19 @@ cytoscape.use(klay);
 const div = document.body.appendChild(document.createElement("div"));
 let args = '';
 let cy: any = null;
+let buttonContainer: HTMLDivElement | null = null;
+
+// Helper to format datetime
+function getFormattedDateTime() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const seconds = String(now.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+}
 
 function updateComponent(cy: any) {
   Streamlit.setComponentValue({
@@ -25,8 +38,6 @@ function updateComponent(cy: any) {
     'edges': cy.$('edge:selected').map((x: any) => x['_private']['data']['id'])
   })
 }
-
-let buttonContainer: HTMLDivElement | null = null;
 
 function addDownloadButtons(cy: any) {
   // Button container
@@ -55,7 +66,7 @@ function addDownloadButtons(cy: any) {
   // Main export button
   const mainBtn = document.createElement("button");
   mainBtn.innerHTML = "⤓";
-  mainBtn.title = "Exportar";
+  mainBtn.title = "Exportar como imagem";
   // Style the button
   Object.assign(mainBtn.style, {
     backgroundColor: "#ffffff",
@@ -127,15 +138,29 @@ function addDownloadButtons(cy: any) {
   }
 
   // Export actions
-  createOption("📷 PNG", () => {
-    const pngData = cy.png({
+  createOption("📷 JPG (tela)", () => {
+    const pngData = cy.jpg({
       full: true,
-      scale: 5,
-      bg: "white"});
+      scale: 20,
+      maxWidth: "4000px",
+      bg: "white",
+      quality: 0.9});
     const a = document.createElement("a");
     a.href = pngData;
-    a.download = "graph.png";
+    a.download = `${getFormattedDateTime()}__grafo_full.jpg`;
     a.click();
+  });
+
+  createOption("📷 JPG (área)", () => {
+  const pngData = cy.jpg({
+    full: false,
+    maxWidth: "4000px",
+    bg: "white",
+    quality: 0.9});
+  const a = document.createElement("a");
+  a.href = pngData;
+  a.download = `${getFormattedDateTime()}__grafo_area.jpg`;
+  a.click();
   });
 
   // Toggle popover visibility
