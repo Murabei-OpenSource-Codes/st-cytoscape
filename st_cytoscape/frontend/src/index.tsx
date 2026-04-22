@@ -81,9 +81,11 @@ function addDownloadButtons(cy: any) {
 
   // Hover effect
   mainBtn.addEventListener("mouseover", () => {
-    if (!isActive) mainBtn.style.backgroundColor = "#f0f0f0";});
+    if (!isActive) mainBtn.style.backgroundColor = "#f0f0f0";
+  });
   mainBtn.addEventListener("mouseout", () => {
-    if (!isActive) mainBtn.style.backgroundColor = "#ffffff";});
+    if (!isActive) mainBtn.style.backgroundColor = "#ffffff";
+  });
 
   // Popover
   const popover = document.createElement("div");
@@ -131,7 +133,8 @@ function addDownloadButtons(cy: any) {
     const pngData = cy.png({
       full: true,
       scale: 5,
-      bg: "white"});
+      bg: "white"
+    });
     const a = document.createElement("a");
     a.href = pngData;
     a.download = "graph.png";
@@ -197,24 +200,129 @@ function onRender(event: Event): void {
     //   }]
     // }
 
-    // Create Cytoscape graph
-    cy = cytoscape({
-      container: div,
-      elements: data.args["elements"],
-      style: data.args["stylesheet"],
-      layout: data.args["layout"],
-      selectionType: data.args["selectionType"],
-      userZoomingEnabled: data.args["userZoomingEnabled"],
-      userPanningEnabled: data.args["userPanningEnabled"],
-      minZoom: data.args["minZoom"],
-      maxZoom: data.args["maxZoom"],
-      wheelSensitivity: data.args["wheelSensitivity"],
-    }).on('select unselect', function () {
-      updateComponent(cy);
-    });
+    if (cy === null) {
+      // ═══════════════════════════════════════════
+      // First mount — create Cytoscape instance
+      // ═══════════════════════════════════════════
+      cy = cytoscape({
+        container: div,
+        elements: data.args["elements"],
+        style: data.args["stylesheet"],
+        layout: data.args["layout"],
+        selectionType: data.args["selectionType"],
+        userZoomingEnabled: data.args["userZoomingEnabled"],
+        userPanningEnabled: data.args["userPanningEnabled"],
+        minZoom: data.args["minZoom"],
+        maxZoom: data.args["maxZoom"],
+        wheelSensitivity: data.args["wheelSensitivity"],
+      }).on('select unselect', function () {
+        updateComponent(cy);
+      });
+
+      addDownloadButtons(cy);
+
+    } else {
+      // ═══════════════════════════════════════════
+      // In-place update — preserve zoom and pan
+      // ═══════════════════════════════════════════
+
+      // Save current positions before update
+      const oldPositions: { [id: string]: { x: number, y: number } } = {};
+      cy.nodes().forEach((node: any) => {
+        oldPositions[node.id()] = { ...node.position() };
+      });
+
+      // Remove listeners to avoid unselect loop
+      cy.removeAllListeners();
+
+      // Update elements and stylesheet in-place
+      cy.json({ elements: data.args["elements"] });
+      cy.style().fromJson(data.args["stylesheet"]).update();
+
+      // Update configs
+      cy.userZoomingEnabled(data.args["userZoomingEnabled"]);
+      cy.userPanningEnabled(data.args["userPanningEnabled"]);
+      cy.minZoom(data.args["minZoom"]);
+      cy.maxZoom(data.args["maxZoom"]);
+
+      // Detect if any positions changed
+      let positionsChanged = false;
+      const viewportCenter = {
+        x: cy.width() / 2,
+        y: cy.height() / 2,
+      };
+      // Convert viewport center to model coordinates
+      const modelCenter = {
+        x: (viewportCenter.x - cy.pan().x) / cy.zoom(),
+        y: (viewportCenter.y - cy.pan().y) / cy.zoom(),
+      };
+
+      // Animate nodes from old to new positions
+      cy.nodes().forEach((node: any) => {
+        const oldPos = oldPositions[node.id()];
+        const newPos = { ...node.position() };
+
+        if (oldPos) {
+          // Existing node — check if position changed
+          const dx = Math.abs(oldPos.x - newPos.x);
+          const dy = Math.abs(oldPos.y - newPos.y);
+          if (dx > 1 || dy > 1) {
+            positionsChanged = true;
+          }
+          // Animate from old to new
+          node.position(oldPos);
+          node.animate({
+            position: newPos,
+          }, {
+            duration: 300,
+            easing: 'ease-in-out-cubic',
+          });
+        } else {
+          // New node — animate from connected existing node
+          positionsChanged = true;
+          let startPos = modelCenter;
+
+          // Check nodes that have edges connected to this new node
+          const neighbors = node.connectedNodes();
+
+          // Search for the first connected neighbor that already existed before
+          for (let i = 0; i < neighbors.length; i++) {
+            const neighborOldPos = oldPositions[neighbors[i].id()];
+            if (neighborOldPos) {
+              startPos = { ...neighborOldPos };
+              break;
+            }
+          }
+
+          node.position(startPos);
+          node.animate({
+            position: newPos,
+          }, {
+            duration: 400,
+            easing: 'ease-out-cubic',
+          });
+        }
+      });
+
+      // Refit zoom only when positions actually changed
+      if (positionsChanged) {
+        setTimeout(() => {
+          cy.animate({
+            fit: { eles: cy.elements(), padding: 30 },
+          }, {
+            duration: 300,
+            easing: 'ease-in-out-cubic',
+          });
+        }, 350);
+      }
+
+      // Re-register event listeners
+      cy.on('select unselect', function () {
+        updateComponent(cy);
+      });
+    }
 
     updateComponent(cy);
-    addDownloadButtons(cy);
   }
 
   Streamlit.setFrameHeight();
