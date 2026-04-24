@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="st-cytoscape",
-    version="0.1.8",
+    version="0.1.9",
     author="",
     author_email="",
     description="A Streamlit component to display a Cytoscape.js graph",
