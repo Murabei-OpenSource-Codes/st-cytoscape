@@ -19,6 +19,11 @@ const div = document.body.appendChild(document.createElement("div"));
 let args = '';
 let cy: any = null;
 
+// Cache of the last positions sent by the backend. 
+let lastBackendPositions: { [id: string]: { x: number, y: number } } = {};
+let lastLayoutJSON: string = "";
+let fitTimeoutId: any = null;
+
 function updateComponent(cy: any) {
   Streamlit.setComponentValue({
     'nodes': cy.$('node:selected').map((x: any) => x['_private']['data']['id']),
@@ -175,30 +180,18 @@ function onRender(event: Event): void {
     div.style.width = data.args["width"];
     div.style.height = data.args["height"];
 
-    // Block comment to allow custom styling through Streamlit
-    // // Theme-aware styling
-    // let nodeColor: any[] = [];
-    // if (data.theme) {
-    //   if (data.theme?.backgroundColor) {
-    //     div.style.background = data.theme.backgroundColor;
-    //   }
-    //   nodeColor = [{
-    //     selector: "node:selected",
-    //     style: { backgroundColor: data.theme?.primaryColor }
-    //   }, {
-    //     selector: "node",
-    //     style: {
-    //       color: data.theme?.textColor,
-    //       fontFamily: data.theme?.font
-    //     }
-    //   }, {
-    //     selector: "edge:selected",
-    //     style: {
-    //       targetArrowColor: data.theme?.primaryColor,
-    //       lineColor: data.theme?.primaryColor
-    //     }
-    //   }]
-    // }
+    // Extraction of Backend Positions
+    const newBackendPositions: { [id: string]: { x: number, y: number } } = {};
+    const elms = data.args["elements"];
+    const nodesOnly = Array.isArray(elms)
+      ? elms.filter((e: any) => e.group === "nodes" || !e.group)
+      : (elms.nodes || []);
+    nodesOnly.forEach((el: any) => {
+      if (el.position) {
+        const id = el.data?.id || el.data?.source;
+        if (id) newBackendPositions[id] = { ...el.position };
+      }
+    });
 
     if (cy === null) {
       // ═══════════════════════════════════════════
@@ -215,11 +208,11 @@ function onRender(event: Event): void {
         minZoom: data.args["minZoom"],
         maxZoom: data.args["maxZoom"],
         wheelSensitivity: data.args["wheelSensitivity"],
-      }).on('select unselect', function () {
-        updateComponent(cy);
-      });
+      }).on('select unselect', () => updateComponent(cy));
 
       addDownloadButtons(cy);
+      lastLayoutJSON = JSON.stringify(data.args["layout"]);
+      lastBackendPositions = { ...newBackendPositions };
 
     } else {
       // ═══════════════════════════════════════════
@@ -232,6 +225,23 @@ function onRender(event: Event): void {
         oldPositions[node.id()] = { ...node.position() };
       });
 
+      // Check if layout changed
+      const currentLayoutJSON = JSON.stringify(data.args["layout"]);
+      const isLayoutSwitch = currentLayoutJSON !== lastLayoutJSON;
+      lastLayoutJSON = currentLayoutJSON;
+
+      // Check if backend coordinates changed
+      let backendChangedCoords = false;
+      Object.keys(newBackendPositions).forEach(id => {
+        const last = lastBackendPositions[id];
+        const current = newBackendPositions[id];
+        if (last && current && (Math.abs(last.x - current.x) > 1 ||
+          Math.abs(last.y - current.y) > 1)) {
+          backendChangedCoords = true;
+        }
+      });
+      lastBackendPositions = { ...newBackendPositions };
+
       // Remove listeners to avoid unselect loop
       cy.removeAllListeners();
 
@@ -239,92 +249,53 @@ function onRender(event: Event): void {
       cy.json({ elements: data.args["elements"] });
       cy.style().fromJson(data.args["stylesheet"]).update();
 
-      // Update configs
-      cy.userZoomingEnabled(data.args["userZoomingEnabled"]);
-      cy.userPanningEnabled(data.args["userPanningEnabled"]);
-      cy.minZoom(data.args["minZoom"]);
-      cy.maxZoom(data.args["maxZoom"]);
-
-      // Detect if any positions changed
-      let positionsChanged = false;
-      const viewportCenter = {
-        x: cy.width() / 2,
-        y: cy.height() / 2,
-      };
-      // Convert viewport center to model coordinates
-      const modelCenter = {
-        x: (viewportCenter.x - cy.pan().x) / cy.zoom(),
-        y: (viewportCenter.y - cy.pan().y) / cy.zoom(),
-      };
-
       // Animate nodes from old to new positions
+      let hasNewNodes = false;
       cy.nodes().forEach((node: any) => {
-        const oldPos = oldPositions[node.id()];
-        const newPos = { ...node.position() };
+        const oldVis = oldPositions[node.id()];
+        const backend = newBackendPositions[node.id()];
 
-        if (oldPos) {
-          // Existing node — check if position changed
-          const dx = Math.abs(oldPos.x - newPos.x);
-          const dy = Math.abs(oldPos.y - newPos.y);
-          if (dx > 1 || dy > 1) {
-            positionsChanged = true;
+        if (oldVis) {
+          if (isLayoutSwitch) {
+            // Layout changed -> Smooth animation (300ms)
+            node.position(oldVis);
+            node.animate({ position: backend }, { duration: 300 });
+          } else if (backendChangedCoords) {
+            // Dispersion slider changed -> Move immediately
+            node.position(backend);
+          } else {
+            // Keep positions
+            node.position(oldVis);
           }
-          // Animate from old to new
-          node.position(oldPos);
-          node.animate({
-            position: newPos,
-          }, {
-            duration: 300,
-            easing: 'ease-in-out-cubic',
-          });
         } else {
-          // New node — animate from connected existing node
-          positionsChanged = true;
-          let startPos = modelCenter;
-
-          // Check nodes that have edges connected to this new node
+          // New node -> Animate from a neighbor
+          hasNewNodes = true;
           const neighbors = node.connectedNodes();
-
-          // Search for the first connected neighbor that already existed before
+          let startP = { x: cy.width() / 2, y: cy.height() / 2 };
           for (let i = 0; i < neighbors.length; i++) {
-            const neighborOldPos = oldPositions[neighbors[i].id()];
-            if (neighborOldPos) {
-              startPos = { ...neighborOldPos };
-              break;
-            }
+            const nOld = oldPositions[neighbors[i].id()];
+            if (nOld) { startP = { ...nOld }; break; }
           }
-
-          node.position(startPos);
-          node.animate({
-            position: newPos,
-          }, {
-            duration: 400,
-            easing: 'ease-out-cubic',
-          });
+          node.position(startP);
+          node.animate({ position: backend }, { duration: 400 });
         }
       });
 
-      // Refit zoom only when positions actually changed
-      if (positionsChanged) {
-        setTimeout(() => {
-          cy.animate({
-            fit: { eles: cy.elements(), padding: 30 },
-          }, {
-            duration: 300,
-            easing: 'ease-in-out-cubic',
+      // Fit if the algorithm changed or there are new nodes.
+      if (isLayoutSwitch || (hasNewNodes && cy.nodes().length > 0)) {
+        if (fitTimeoutId) clearTimeout(fitTimeoutId);
+        fitTimeoutId = setTimeout(() => {
+          cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, {
+            duration: 300
           });
         }, 350);
       }
 
       // Re-register event listeners
-      cy.on('select unselect', function () {
-        updateComponent(cy);
-      });
+      cy.on('select unselect', () => updateComponent(cy));
     }
-
     updateComponent(cy);
   }
-
   Streamlit.setFrameHeight();
 }
 
