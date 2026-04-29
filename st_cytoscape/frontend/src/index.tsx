@@ -19,6 +19,11 @@ const div = document.body.appendChild(document.createElement("div"));
 let args = '';
 let cy: any = null;
 
+// Cache of the last positions sent by the backend. 
+let lastBackendPositions: { [id: string]: { x: number, y: number } } = {};
+let lastLayoutJSON: string = "";
+let fitTimeoutId: any = null;
+
 function updateComponent(cy: any) {
   Streamlit.setComponentValue({
     'nodes': cy.$('node:selected').map((x: any) => x['_private']['data']['id']),
@@ -81,9 +86,11 @@ function addDownloadButtons(cy: any) {
 
   // Hover effect
   mainBtn.addEventListener("mouseover", () => {
-    if (!isActive) mainBtn.style.backgroundColor = "#f0f0f0";});
+    if (!isActive) mainBtn.style.backgroundColor = "#f0f0f0";
+  });
   mainBtn.addEventListener("mouseout", () => {
-    if (!isActive) mainBtn.style.backgroundColor = "#ffffff";});
+    if (!isActive) mainBtn.style.backgroundColor = "#ffffff";
+  });
 
   // Popover
   const popover = document.createElement("div");
@@ -131,7 +138,8 @@ function addDownloadButtons(cy: any) {
     const pngData = cy.png({
       full: true,
       scale: 5,
-      bg: "white"});
+      bg: "white"
+    });
     const a = document.createElement("a");
     a.href = pngData;
     a.download = "graph.png";
@@ -172,51 +180,122 @@ function onRender(event: Event): void {
     div.style.width = data.args["width"];
     div.style.height = data.args["height"];
 
-    // Block comment to allow custom styling through Streamlit
-    // // Theme-aware styling
-    // let nodeColor: any[] = [];
-    // if (data.theme) {
-    //   if (data.theme?.backgroundColor) {
-    //     div.style.background = data.theme.backgroundColor;
-    //   }
-    //   nodeColor = [{
-    //     selector: "node:selected",
-    //     style: { backgroundColor: data.theme?.primaryColor }
-    //   }, {
-    //     selector: "node",
-    //     style: {
-    //       color: data.theme?.textColor,
-    //       fontFamily: data.theme?.font
-    //     }
-    //   }, {
-    //     selector: "edge:selected",
-    //     style: {
-    //       targetArrowColor: data.theme?.primaryColor,
-    //       lineColor: data.theme?.primaryColor
-    //     }
-    //   }]
-    // }
-
-    // Create Cytoscape graph
-    cy = cytoscape({
-      container: div,
-      elements: data.args["elements"],
-      style: data.args["stylesheet"],
-      layout: data.args["layout"],
-      selectionType: data.args["selectionType"],
-      userZoomingEnabled: data.args["userZoomingEnabled"],
-      userPanningEnabled: data.args["userPanningEnabled"],
-      minZoom: data.args["minZoom"],
-      maxZoom: data.args["maxZoom"],
-      wheelSensitivity: data.args["wheelSensitivity"],
-    }).on('select unselect', function () {
-      updateComponent(cy);
+    // Extraction of Backend Positions
+    const newBackendPositions: { [id: string]: { x: number, y: number } } = {};
+    const elms = data.args["elements"];
+    const nodesOnly = Array.isArray(elms)
+      ? elms.filter((e: any) => e.group === "nodes" || !e.group)
+      : (elms.nodes || []);
+    nodesOnly.forEach((el: any) => {
+      if (el.position) {
+        const id = el.data?.id || el.data?.source;
+        if (id) newBackendPositions[id] = { ...el.position };
+      }
     });
 
-    updateComponent(cy);
-    addDownloadButtons(cy);
-  }
+    if (cy === null) {
+      // ═══════════════════════════════════════════
+      // First mount — create Cytoscape instance
+      // ═══════════════════════════════════════════
+      cy = cytoscape({
+        container: div,
+        elements: data.args["elements"],
+        style: data.args["stylesheet"],
+        layout: data.args["layout"],
+        selectionType: data.args["selectionType"],
+        userZoomingEnabled: data.args["userZoomingEnabled"],
+        userPanningEnabled: data.args["userPanningEnabled"],
+        minZoom: data.args["minZoom"],
+        maxZoom: data.args["maxZoom"],
+        wheelSensitivity: data.args["wheelSensitivity"],
+      }).on('select unselect', () => updateComponent(cy));
 
+      addDownloadButtons(cy);
+      lastLayoutJSON = JSON.stringify(data.args["layout"]);
+      lastBackendPositions = { ...newBackendPositions };
+
+    } else {
+      // ═══════════════════════════════════════════
+      // In-place update — preserve zoom and pan
+      // ═══════════════════════════════════════════
+
+      // Save current positions before update
+      const oldPositions: { [id: string]: { x: number, y: number } } = {};
+      cy.nodes().forEach((node: any) => {
+        oldPositions[node.id()] = { ...node.position() };
+      });
+
+      // Check if layout changed
+      const currentLayoutJSON = JSON.stringify(data.args["layout"]);
+      const isLayoutSwitch = currentLayoutJSON !== lastLayoutJSON;
+      lastLayoutJSON = currentLayoutJSON;
+
+      // Check if backend coordinates changed
+      let backendChangedCoords = false;
+      Object.keys(newBackendPositions).forEach(id => {
+        const last = lastBackendPositions[id];
+        const current = newBackendPositions[id];
+        if (last && current && (Math.abs(last.x - current.x) > 1 ||
+          Math.abs(last.y - current.y) > 1)) {
+          backendChangedCoords = true;
+        }
+      });
+      lastBackendPositions = { ...newBackendPositions };
+
+      // Remove listeners to avoid unselect loop
+      cy.removeAllListeners();
+
+      // Update elements and stylesheet in-place
+      cy.json({ elements: data.args["elements"] });
+      cy.style().fromJson(data.args["stylesheet"]).update();
+
+      // Animate nodes from old to new positions
+      let hasNewNodes = false;
+      cy.nodes().forEach((node: any) => {
+        const oldVis = oldPositions[node.id()];
+        const backend = newBackendPositions[node.id()];
+
+        if (oldVis) {
+          if (isLayoutSwitch) {
+            // Layout changed -> Smooth animation (300ms)
+            node.position(oldVis);
+            node.animate({ position: backend }, { duration: 300 });
+          } else if (backendChangedCoords) {
+            // Dispersion slider changed -> Move immediately
+            node.position(backend);
+          } else {
+            // Keep positions
+            node.position(oldVis);
+          }
+        } else {
+          // New node -> Animate from a neighbor
+          hasNewNodes = true;
+          const neighbors = node.connectedNodes();
+          let startP = { x: cy.width() / 2, y: cy.height() / 2 };
+          for (let i = 0; i < neighbors.length; i++) {
+            const nOld = oldPositions[neighbors[i].id()];
+            if (nOld) { startP = { ...nOld }; break; }
+          }
+          node.position(startP);
+          node.animate({ position: backend }, { duration: 400 });
+        }
+      });
+
+      // Fit if the algorithm changed or there are new nodes.
+      if (isLayoutSwitch || (hasNewNodes && cy.nodes().length > 0)) {
+        if (fitTimeoutId) clearTimeout(fitTimeoutId);
+        fitTimeoutId = setTimeout(() => {
+          cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, {
+            duration: 300
+          });
+        }, 350);
+      }
+
+      // Re-register event listeners
+      cy.on('select unselect', () => updateComponent(cy));
+    }
+    updateComponent(cy);
+  }
   Streamlit.setFrameHeight();
 }
 
