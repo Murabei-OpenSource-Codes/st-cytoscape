@@ -19,10 +19,11 @@ const div = document.body.appendChild(document.createElement("div"));
 let args = '';
 let cy: any = null;
 
-// Cache of the last positions sent by the backend. 
-let lastBackendPositions: { [id: string]: { x: number, y: number } } = {};
+// Cache of the last positions sent by the backend.
 let lastLayoutJSON: string = "";
-let fitTimeoutId: any = null;
+let lastLayoutName: string = "";
+
+const SLIDE_MS = 500;
 
 function updateComponent(cy: any) {
   Streamlit.setComponentValue({
@@ -180,18 +181,6 @@ function onRender(event: Event): void {
     div.style.width = data.args["width"];
     div.style.height = data.args["height"];
 
-    // Extraction of Backend Positions
-    const newBackendPositions: { [id: string]: { x: number, y: number } } = {};
-    const elms = data.args["elements"];
-    const nodesOnly = Array.isArray(elms)
-      ? elms.filter((e: any) => e.group === "nodes" || !e.group)
-      : (elms.nodes || []);
-    nodesOnly.forEach((el: any) => {
-      if (el.position) {
-        const id = el.data?.id || el.data?.source;
-        if (id) newBackendPositions[id] = { ...el.position };
-      }
-    });
 
     if (cy === null) {
       // ═══════════════════════════════════════════
@@ -212,7 +201,7 @@ function onRender(event: Event): void {
 
       addDownloadButtons(cy);
       lastLayoutJSON = JSON.stringify(data.args["layout"]);
-      lastBackendPositions = { ...newBackendPositions };
+      lastLayoutName = data.args["layout"].name || "";
 
     } else {
       // ═══════════════════════════════════════════
@@ -225,22 +214,19 @@ function onRender(event: Event): void {
         oldPositions[node.id()] = { ...node.position() };
       });
 
+      // Save the IDs that already exist in the graph.
+      const oldElementIds = new Set<string>();
+
+      cy.elements().forEach((element: any) => {
+        oldElementIds.add(element.id());
+      });
+
       // Check if layout changed
       const currentLayoutJSON = JSON.stringify(data.args["layout"]);
-      const isLayoutSwitch = currentLayoutJSON !== lastLayoutJSON;
-      lastLayoutJSON = currentLayoutJSON;
+      const currentLayoutName = data.args["layout"].name || "";
 
-      // Check if backend coordinates changed
-      let backendChangedCoords = false;
-      Object.keys(newBackendPositions).forEach(id => {
-        const last = lastBackendPositions[id];
-        const current = newBackendPositions[id];
-        if (last && current && (Math.abs(last.x - current.x) > 1 ||
-          Math.abs(last.y - current.y) > 1)) {
-          backendChangedCoords = true;
-        }
-      });
-      lastBackendPositions = { ...newBackendPositions };
+      const layoutChanged = currentLayoutJSON !== lastLayoutJSON;
+      const layoutNameChanged = currentLayoutName !== lastLayoutName;
 
       // Remove listeners to avoid unselect loop
       cy.removeAllListeners();
@@ -249,60 +235,234 @@ function onRender(event: Event): void {
       cy.json({ elements: data.args["elements"] });
       cy.style().fromJson(data.args["stylesheet"]).update();
 
-      // Animate nodes from old to new positions
-      let hasNewNodes = false;
+      // Restore the positions of nodes that already existed.
       cy.nodes().forEach((node: any) => {
-        const oldVis = oldPositions[node.id()];
-        const backend = newBackendPositions[node.id()];
+        const oldPosition = oldPositions[node.id()];
 
-        if (oldVis) {
-          if (isLayoutSwitch) {
-            // Layout changed -> Smooth animation (300ms)
-            node.position(oldVis);
-            node.animate({ position: backend }, { duration: 300 });
-          } else if (backendChangedCoords) {
-            // Dispersion slider changed -> Move immediately
-            node.position(backend);
-          } else {
-            // Keep positions
-            node.position(oldVis);
-          }
-        } else {
-          // New node -> Animate from a neighbor
-          hasNewNodes = true;
-          const neighbors = node.connectedNodes();
-          let startP = { x: cy.width() / 2, y: cy.height() / 2 };
-          for (let i = 0; i < neighbors.length; i++) {
-            const nOld = oldPositions[neighbors[i].id()];
-            if (nOld) { startP = { ...nOld }; break; }
-          }
-          node.position(startP);
-          node.animate({ position: backend }, { duration: 400 });
+        if (oldPosition) {
+          node.position(oldPosition);
         }
       });
 
-      // Fit if the algorithm changed or there are new nodes.
-      if (isLayoutSwitch || (hasNewNodes && cy.nodes().length > 0)) {
-        if (fitTimeoutId) clearTimeout(fitTimeoutId);
-        fitTimeoutId = setTimeout(() => {
-          cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, {
-            duration: 300
+      // Identify the newly added nodes and edges.
+      const newNodes = cy.nodes().filter(
+        (node: any) => !oldElementIds.has(node.id()),
+      );
+
+      const newEdges = cy.edges().filter(
+        (edge: any) => !oldElementIds.has(edge.id()),
+      );
+
+      // Animate nodes from old to new positions
+      if (layoutChanged) {
+        const shouldFit = layoutNameChanged
+          && Boolean(data.args["layout"].fit);
+        const savedPan = { ...cy.pan() };
+        const savedZoom = cy.zoom();
+        const padding = data.args["layout"].padding || 30;
+
+        const layoutOpts: any = {
+          ...data.args["layout"],
+          animate: false,
+          fit: false,
+        };
+
+        if (layoutOpts.name === "fcose") {
+          layoutOpts.randomize = layoutNameChanged
+            ? layoutOpts.randomize !== false
+            : false;
+
+          if (!layoutOpts.randomize) {
+            layoutOpts.quality = layoutNameChanged
+              ? "proof"
+              : "default";
+          }
+        }
+
+        /*
+         * Slide: compute layout hidden, restore old positions,
+         * animate each node, then fit viewport if needed.
+         */
+        div.style.opacity = "0";
+        const layoutInstance = cy.layout(layoutOpts);
+        layoutInstance.one("layoutstop", () => {
+          const targetPositions: {
+            [id: string]: { x: number, y: number }
+          } = {};
+          cy.nodes().forEach((node: any) => {
+            targetPositions[node.id()] = { ...node.position() };
           });
-        }, 350);
+
+          cy.nodes().forEach((node: any) => {
+            const oldVis = oldPositions[node.id()];
+            if (oldVis) {
+              node.position(oldVis);
+            }
+          });
+          div.style.opacity = "1";
+
+          if (!shouldFit) {
+            cy.viewport({ zoom: savedZoom, pan: savedPan });
+          }
+
+          requestAnimationFrame(() => {
+            const animations: Promise<void>[] = [];
+
+            cy.nodes().forEach((node: any) => {
+              const nodeId = node.id();
+              const target = targetPositions[nodeId];
+              if (!target) {
+                return;
+              }
+
+              const oldVis = oldPositions[nodeId];
+              let startP = oldVis;
+              if (!startP) {
+                startP = {
+                  x: cy.width() / 2,
+                  y: cy.height() / 2,
+                };
+                const neighbors = node.connectedNodes();
+                for (let i = 0; i < neighbors.length; i++) {
+                  const nOld = oldPositions[neighbors[i].id()];
+                  if (nOld) {
+                    startP = { ...nOld };
+                    break;
+                  }
+                }
+              }
+
+              node.position(startP);
+              animations.push(new Promise((resolve) => {
+                node.animate({ position: target }, {
+                  duration: SLIDE_MS,
+                  easing: "ease-in-out-cubic",
+                  complete: () => resolve(),
+                });
+              }));
+            });
+
+            const finishSlide = () => {
+              if (shouldFit) {
+                cy.animate({
+                  fit: {
+                    eles: cy.elements(),
+                    padding: padding,
+                  },
+                }, {
+                  duration: SLIDE_MS,
+                  easing: "ease-in-out-cubic",
+                });
+              } else {
+                cy.viewport({ zoom: savedZoom, pan: savedPan });
+              }
+              cy.on("select unselect", () => updateComponent(cy));
+              updateComponent(cy);
+            };
+
+            if (animations.length === 0) {
+              finishSlide();
+            } else {
+              Promise.all(animations).then(finishSlide);
+            }
+          });
+        });
+        layoutInstance.run();
+
+      } else {
+        /*
+         * The layout did not change.
+         * Animate only newly added nodes.
+         */
+        newNodes.forEach((node: any, index: number) => {
+          const neighbors = node.connectedNodes();
+
+          let origin = {
+            x: cy.width() / 2,
+            y: cy.height() / 2,
+          };
+
+          // Find a neighbor that already existed.
+          for (let i = 0; i < neighbors.length; i++) {
+            const neighborPosition = oldPositions[neighbors[i].id()];
+
+            if (neighborPosition) {
+              origin = { ...neighborPosition };
+              break;
+            }
+          }
+      
+          const angle = (2 * Math.PI * index / Math.max(newNodes.length, 1));
+          const target = {
+            x: origin.x + Math.cos(angle) * 120,
+            y: origin.y + Math.sin(angle) * 120,
+          };
+
+          const mappedOpacity = Number(node.data("nodes_opacity"));
+          const finalOpacity = Number.isFinite(mappedOpacity)
+            ? mappedOpacity
+            : 1;
+
+          // Start over the existing neighbor.
+          node.position(origin);
+          node.style("opacity", 0);
+
+          requestAnimationFrame(() => {
+            node.animate(
+              {
+                position: target,
+                style: {
+                  opacity: finalOpacity,
+                },
+              },
+              {
+                duration: SLIDE_MS,
+                easing: "ease-in-out-cubic",
+                complete: () => {
+                  node.removeStyle("opacity");
+                },
+              },
+            );
+          });
+        });
+
+        /*
+         * Make newly added edges gradually appear.
+         */
+        newEdges.forEach((edge: any) => {
+          edge.style("opacity", 0);
+
+          requestAnimationFrame(() => {
+            edge.animate(
+              {
+                style: {
+                  opacity: 1,
+                },
+              },
+              {
+                duration: SLIDE_MS,
+                easing: "ease-in-out-cubic",
+                complete: () => {
+                  edge.removeStyle("opacity");
+                },
+              },
+            );
+          });
+        });
       }
 
-      // Re-register event listeners
-      cy.on('select unselect', () => updateComponent(cy));
+      lastLayoutJSON = currentLayoutJSON;
+      lastLayoutName = currentLayoutName;
+
+      if (!layoutChanged) {
+        cy.on("select unselect", () => updateComponent(cy));
+      }
     }
     updateComponent(cy);
   }
   Streamlit.setFrameHeight();
 }
 
-// Log current cy object
-console.log(cy);
-
-// Attach `onRender` handler
 Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender)
 Streamlit.setComponentReady()
 Streamlit.setFrameHeight()
