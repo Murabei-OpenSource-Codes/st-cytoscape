@@ -12,6 +12,13 @@ if not _RELEASE:
 else:
     parent_dir = os.path.dirname(os.path.abspath(__file__))
     build_dir = os.path.join(parent_dir, "frontend/build")
+    _index_html = os.path.join(build_dir, "index.html")
+    if not os.path.isfile(_index_html):
+        msg = (
+            "st-cytoscape frontend build not found at {path}. "
+            "Run: cd st_cytoscape/frontend && npm install && npm run build"
+        ).format(path=build_dir)
+        raise FileNotFoundError(msg)
     _component_func = components.declare_component(
         "st_cytoscape", path=build_dir)
 

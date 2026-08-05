@@ -19,11 +19,11 @@ const div = document.body.appendChild(document.createElement("div"));
 let args = '';
 let cy: any = null;
 
-// Cache of the last positions sent by the backend.
+// Cache of the last layout configuration received from the backend.
 let lastLayoutJSON: string = "";
 let lastLayoutName: string = "";
 
-const SLIDE_MS = 500;
+let fitTimeoutId: number | null = null;
 
 function updateComponent(cy: any) {
   Streamlit.setComponentValue({
@@ -245,18 +245,12 @@ function onRender(event: Event): void {
       });
 
       // Identify the newly added nodes and edges.
-      const newNodes = cy.nodes().filter(
-        (node: any) => !oldElementIds.has(node.id()),
-      );
+      const newNodes = cy.nodes().filter((node: any) => !oldElementIds.has(node.id()));
+      const newEdges = cy.edges().filter((edge: any) => !oldElementIds.has(edge.id()));
 
-      const newEdges = cy.edges().filter(
-        (edge: any) => !oldElementIds.has(edge.id()),
-      );
-
-      // Animate nodes from old to new positions
+      // Layout changed.
       if (layoutChanged) {
-        const shouldFit = layoutNameChanged
-          && Boolean(data.args["layout"].fit);
+        const shouldFit = layoutNameChanged && Boolean(data.args["layout"].fit);
         const savedPan = { ...cy.pan() };
         const savedZoom = cy.zoom();
         const padding = data.args["layout"].padding || 30;
@@ -267,185 +261,113 @@ function onRender(event: Event): void {
           fit: false,
         };
 
-        if (layoutOpts.name === "fcose") {
-          layoutOpts.randomize = layoutNameChanged
-            ? layoutOpts.randomize !== false
-            : false;
-
-          if (!layoutOpts.randomize) {
-            layoutOpts.quality = layoutNameChanged
-              ? "proof"
-              : "default";
-          }
-        }
-
-        /*
-         * Slide: compute layout hidden, restore old positions,
-         * animate each node, then fit viewport if needed.
-         */
-        div.style.opacity = "0";
         const layoutInstance = cy.layout(layoutOpts);
+
         layoutInstance.one("layoutstop", () => {
-          const targetPositions: {
-            [id: string]: { x: number, y: number }
-          } = {};
+          const targetPositions: { [id: string]: { x: number, y: number } } = {};
+
           cy.nodes().forEach((node: any) => {
             targetPositions[node.id()] = { ...node.position() };
           });
 
           cy.nodes().forEach((node: any) => {
             const oldVis = oldPositions[node.id()];
-            if (oldVis) {
-              node.position(oldVis);
-            }
-          });
-          div.style.opacity = "1";
+            const target = targetPositions[node.id()];
 
-          if (!shouldFit) {
+            if (!target || !oldVis) {
+              return;
+            }
+
+            node.position(oldVis);
+            node.animate({ position: target }, { duration: 300 });
+          });
+
+          newNodes.forEach((node: any) => {
+            const target = targetPositions[node.id()];
+            if (!target) {
+              return;
+            }
+
+            const neighbors = node.connectedNodes();
+            let startP = { x: 0, y: 0 };
+            for (let i = 0; i < neighbors.length; i++) {
+              const nOld = oldPositions[neighbors[i].id()];
+              if (nOld) {
+                startP = { ...nOld };
+                break;
+              }
+            }
+
+            node.position(startP);
+            node.animate({ position: target }, { duration: 400 });
+          });
+
+          if (shouldFit && cy.nodes().length > 0) {
+            if (fitTimeoutId !== null) {
+              window.clearTimeout(fitTimeoutId);
+            }
+
+            fitTimeoutId = window.setTimeout(() => {
+              cy.animate({ fit: { eles: cy.elements(), padding: padding } }, { duration: 300 });
+              fitTimeoutId = null;
+            }, 450);
+          } else {
             cy.viewport({ zoom: savedZoom, pan: savedPan });
           }
-
-          requestAnimationFrame(() => {
-            const animations: Promise<void>[] = [];
-
-            cy.nodes().forEach((node: any) => {
-              const nodeId = node.id();
-              const target = targetPositions[nodeId];
-              if (!target) {
-                return;
-              }
-
-              const oldVis = oldPositions[nodeId];
-              let startP = oldVis;
-              if (!startP) {
-                startP = {
-                  x: cy.width() / 2,
-                  y: cy.height() / 2,
-                };
-                const neighbors = node.connectedNodes();
-                for (let i = 0; i < neighbors.length; i++) {
-                  const nOld = oldPositions[neighbors[i].id()];
-                  if (nOld) {
-                    startP = { ...nOld };
-                    break;
-                  }
-                }
-              }
-
-              node.position(startP);
-              animations.push(new Promise((resolve) => {
-                node.animate({ position: target }, {
-                  duration: SLIDE_MS,
-                  easing: "ease-in-out-cubic",
-                  complete: () => resolve(),
-                });
-              }));
-            });
-
-            const finishSlide = () => {
-              if (shouldFit) {
-                cy.animate({
-                  fit: {
-                    eles: cy.elements(),
-                    padding: padding,
-                  },
-                }, {
-                  duration: SLIDE_MS,
-                  easing: "ease-in-out-cubic",
-                });
-              } else {
-                cy.viewport({ zoom: savedZoom, pan: savedPan });
-              }
-              cy.on("select unselect", () => updateComponent(cy));
-              updateComponent(cy);
-            };
-
-            if (animations.length === 0) {
-              finishSlide();
-            } else {
-              Promise.all(animations).then(finishSlide);
-            }
-          });
         });
+
         layoutInstance.run();
 
-      } else {
-        /*
-         * The layout did not change.
-         * Animate only newly added nodes.
-         */
+      } else if (newNodes.length > 0 || newEdges.length > 0) {
+        const NODE_OFFSET = 80;
+
         newNodes.forEach((node: any, index: number) => {
           const neighbors = node.connectedNodes();
+          let startPosition: { x: number, y: number } | undefined;
 
-          let origin = {
-            x: cy.width() / 2,
-            y: cy.height() / 2,
-          };
-
-          // Find a neighbor that already existed.
           for (let i = 0; i < neighbors.length; i++) {
-            const neighborPosition = oldPositions[neighbors[i].id()];
-
-            if (neighborPosition) {
-              origin = { ...neighborPosition };
+            const neighborPos = oldPositions[neighbors[i].id()];
+            if (neighborPos) {
+              startPosition = { ...neighborPos };
               break;
             }
           }
-      
-          const angle = (2 * Math.PI * index / Math.max(newNodes.length, 1));
+
+          if (!startPosition) {
+            const existing = cy.nodes().filter((n: any) => oldElementIds.has(n.id()));
+            if (existing.length > 0) {
+              startPosition = { ...existing[0].position() };
+            }
+          }
+
+          const anchor = startPosition || { x: 0, y: 0 };
+          const angle = 2 * Math.PI * index / Math.max(newNodes.length, 1);
           const target = {
-            x: origin.x + Math.cos(angle) * 120,
-            y: origin.y + Math.sin(angle) * 120,
+            x: anchor.x + Math.cos(angle) * NODE_OFFSET,
+            y: anchor.y + Math.sin(angle) * NODE_OFFSET,
           };
 
-          const mappedOpacity = Number(node.data("nodes_opacity"));
-          const finalOpacity = Number.isFinite(mappedOpacity)
-            ? mappedOpacity
-            : 1;
-
-          // Start over the existing neighbor.
-          node.position(origin);
+          node.position({ ...anchor });
           node.style("opacity", 0);
 
           requestAnimationFrame(() => {
             node.animate(
-              {
-                position: target,
-                style: {
-                  opacity: finalOpacity,
-                },
-              },
-              {
-                duration: SLIDE_MS,
+              { position: target, style: { opacity: 1 } },
+              { duration: 400,
                 easing: "ease-in-out-cubic",
-                complete: () => {
-                  node.removeStyle("opacity");
-                },
+                complete: () => node.removeStyle("opacity"),
               },
             );
           });
         });
 
-        /*
-         * Make newly added edges gradually appear.
-         */
         newEdges.forEach((edge: any) => {
           edge.style("opacity", 0);
 
           requestAnimationFrame(() => {
             edge.animate(
-              {
-                style: {
-                  opacity: 1,
-                },
-              },
-              {
-                duration: SLIDE_MS,
-                easing: "ease-in-out-cubic",
-                complete: () => {
-                  edge.removeStyle("opacity");
-                },
-              },
+              { style: { opacity: 1 } },
+              { duration: 300, complete: () => edge.removeStyle("opacity") },
             );
           });
         });
@@ -454,9 +376,8 @@ function onRender(event: Event): void {
       lastLayoutJSON = currentLayoutJSON;
       lastLayoutName = currentLayoutName;
 
-      if (!layoutChanged) {
-        cy.on("select unselect", () => updateComponent(cy));
-      }
+      // Re-register event listeners.
+      cy.on("select unselect", () => updateComponent(cy));
     }
     updateComponent(cy);
   }
