@@ -167,7 +167,6 @@ function addDownloadButtons(cy: any) {
   });
 }
 
-
 /**
  * The component's render function.
  */
@@ -237,10 +236,10 @@ function onRender(event: Event): void {
 
       // Restore the positions of nodes that already existed.
       cy.nodes().forEach((node: any) => {
-        const oldPosition = oldPositions[node.id()];
+        const oldVis = oldPositions[node.id()];
 
-        if (oldPosition) {
-          node.position(oldPosition);
+        if (oldVis) {
+          node.position(oldVis);
         }
       });
 
@@ -282,35 +281,20 @@ function onRender(event: Event): void {
             node.animate({ position: target }, { duration: 300 });
           });
 
-          newNodes.forEach((node: any) => {
-            const target = targetPositions[node.id()];
-            if (!target) {
-              return;
-            }
-
-            const neighbors = node.connectedNodes();
-            let startP = { x: 0, y: 0 };
-            for (let i = 0; i < neighbors.length; i++) {
-              const nOld = oldPositions[neighbors[i].id()];
-              if (nOld) {
-                startP = { ...nOld };
-                break;
-              }
-            }
-
-            node.position(startP);
-            node.animate({ position: target }, { duration: 400 });
-          });
-
+          // Fit if the algorithm changed.
           if (shouldFit && cy.nodes().length > 0) {
             if (fitTimeoutId !== null) {
               window.clearTimeout(fitTimeoutId);
             }
 
             fitTimeoutId = window.setTimeout(() => {
-              cy.animate({ fit: { eles: cy.elements(), padding: padding } }, { duration: 300 });
+              cy.animate({ fit: { eles: cy.elements(), padding: padding } }, {
+                duration: 300,
+              });
               fitTimeoutId = null;
-            }, 450);
+            }, 350);
+
+          // New nodes added.  
           } else {
             cy.viewport({ zoom: savedZoom, pan: savedPan });
           }
@@ -319,47 +303,40 @@ function onRender(event: Event): void {
         layoutInstance.run();
 
       } else if (newNodes.length > 0 || newEdges.length > 0) {
-        const NODE_OFFSET = 80;
+        const savedPan = { ...cy.pan() };
+        const savedZoom = cy.zoom();
+        const anchorNodeId = data.args["anchorNodeId"] as string | undefined;
 
-        newNodes.forEach((node: any, index: number) => {
-          const neighbors = node.connectedNodes();
-          let startPosition: { x: number, y: number } | undefined;
+        let hubId = "";
+        if (anchorNodeId && oldElementIds.has(anchorNodeId)) {
+          hubId = anchorNodeId;
+        } 
 
-          for (let i = 0; i < neighbors.length; i++) {
-            const neighborPos = oldPositions[neighbors[i].id()];
-            if (neighborPos) {
-              startPosition = { ...neighborPos };
-              break;
-            }
-          }
-
-          if (!startPosition) {
-            const existing = cy.nodes().filter((n: any) => oldElementIds.has(n.id()));
-            if (existing.length > 0) {
-              startPosition = { ...existing[0].position() };
-            }
-          }
-
-          const anchor = startPosition || { x: 0, y: 0 };
-          const angle = 2 * Math.PI * index / Math.max(newNodes.length, 1);
-          const target = {
-            x: anchor.x + Math.cos(angle) * NODE_OFFSET,
-            y: anchor.y + Math.sin(angle) * NODE_OFFSET,
-          };
-
-          node.position({ ...anchor });
-          node.style("opacity", 0);
-
-          requestAnimationFrame(() => {
-            node.animate(
-              { position: target, style: { opacity: 1 } },
-              { duration: 400,
-                easing: "ease-in-out-cubic",
-                complete: () => node.removeStyle("opacity"),
-              },
-            );
+        // Seed new nodes near the expand hub before local layout
+        const hub = hubId ? cy.getElementById(hubId) : null;
+        if (hub && hub.nonempty()) {
+          const hubPos = hub.position();
+          newNodes.forEach((node: any, index: number) => {
+            node.position({
+              x: hubPos.x + index * 0.01,
+              y: hubPos.y,
+            });
           });
-        });
+        }
+
+        cy.nodes().not(newNodes).lock();
+
+        newNodes.closedNeighborhood().layout({
+          ...data.args["layout"],
+          animate: true,
+          fit: false,
+          randomize: false,
+          quality: "default",
+          numIter: 500,
+        }).one("layoutstop", () => {
+          cy.nodes().unlock();
+          cy.viewport({ zoom: savedZoom, pan: savedPan });
+        }).run();
 
         newEdges.forEach((edge: any) => {
           edge.style("opacity", 0);

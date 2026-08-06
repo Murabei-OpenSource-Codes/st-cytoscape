@@ -12,13 +12,6 @@ if not _RELEASE:
 else:
     parent_dir = os.path.dirname(os.path.abspath(__file__))
     build_dir = os.path.join(parent_dir, "frontend/build")
-    _index_html = os.path.join(build_dir, "index.html")
-    if not os.path.isfile(_index_html):
-        msg = (
-            "st-cytoscape frontend build not found at {path}. "
-            "Run: cd st_cytoscape/frontend && npm install && npm run build"
-        ).format(path=build_dir)
-        raise FileNotFoundError(msg)
     _component_func = components.declare_component(
         "st_cytoscape", path=build_dir)
 
@@ -35,7 +28,8 @@ def cytoscape(
     min_zoom=1e-50,
     max_zoom=1e50,
     key=None,
-    wheel_sensitivity=1
+    wheel_sensitivity=1,
+    anchor_node_id=None,
 ):
     """Creates a new instance of a Cytoscape.js graph.
 
@@ -69,6 +63,9 @@ def cytoscape(
             be re-mounted in the Streamlit frontend and lose its current state.
         wheel_sensitivity: float
             Cf. https://js.cytoscape.org/#core/initialisation
+        anchor_node_id: str or None
+            Optional id of the node used as fan anchor on incremental
+            expand (new nodes open in an arc around this node).
 
     Returns:
         component_value
@@ -98,7 +95,8 @@ def cytoscape(
         maxZoom=max_zoom,
         key=key,
         default=default,
-        wheelSensitivity=wheel_sensitivity
+        wheelSensitivity=wheel_sensitivity,
+        anchorNodeId=anchor_node_id,
     )
     return component_value
 
