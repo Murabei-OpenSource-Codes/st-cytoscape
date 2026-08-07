@@ -1,6 +1,7 @@
 st_cytoscape.egg-info/
 .vscode/
 *.txt
+!st_cytoscape/frontend/build/**/*.txt
 *.pyc
 
 # Node
@@ -10,10 +11,10 @@ dist/
 # Python
 __pycache__/
 *.pyc
+/build/
 
 # OS / editor
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-build/

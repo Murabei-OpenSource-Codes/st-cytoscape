@@ -30,6 +30,7 @@ def cytoscape(
     key=None,
     wheel_sensitivity=1,
     anchor_node_id=None,
+    fit_viewport=False,
 ):
     """Creates a new instance of a Cytoscape.js graph.
 
@@ -66,6 +67,9 @@ def cytoscape(
         anchor_node_id: str or None
             Optional id of the node used as fan anchor on incremental
             expand (new nodes open in an arc around this node).
+        fit_viewport: bool
+            When True, fit all elements into the viewport after an
+            in-place graph update (e.g. toggling subgraph view).
 
     Returns:
         component_value
@@ -97,6 +101,7 @@ def cytoscape(
         default=default,
         wheelSensitivity=wheel_sensitivity,
         anchorNodeId=anchor_node_id,
+        fitViewport=fit_viewport,
     )
     return component_value
 
